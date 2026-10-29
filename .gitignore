@@ -1,0 +1,35 @@
+# Secrets and local state: the master token, password hash, devices, push keys, tasks
+.jev-token
+.laya-token
+.jev-data/
+relay.json
+*.pem
+*.key
+*.cert
+.env
+.env.*
+!.env.example
+
+# Local scratch and binaries
+scratch/
+bin/
+*.exe
+
+# Dependencies
+node_modules/
+
+# Generated output
+output/
+.playwright-cli/
+
+# OS and editor noise
+.DS_Store
+Thumbs.db
+*.log
+.vscode/
+.idea/
+
+# Website build output and Vercel link
+site/dist/
+.vercel/
+launch/
