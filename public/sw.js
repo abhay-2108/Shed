@@ -1,6 +1,60 @@
 // Shed's service worker: shows push notifications and opens the right session or task when one is tapped.
-self.addEventListener('install', () => self.skipWaiting());
-self.addEventListener('activate', event => event.waitUntil(self.clients.claim()));
+const SHELL_CACHE = 'shed-shell-v3';
+const PRECACHE = [
+  '/',
+  '/index.html',
+  '/styles.css',
+  '/theme.css',
+  '/app.js',
+  '/logo.svg',
+  '/icon-180.png',
+  '/icon-192.png',
+  '/icon-512.png',
+  '/icon-maskable-512.png',
+  '/manifest.webmanifest'
+];
+
+self.addEventListener('install', event => {
+  self.skipWaiting();
+  event.waitUntil(
+    caches.open(SHELL_CACHE).then(cache => cache.addAll(PRECACHE).catch(() => {}))
+  );
+});
+
+self.addEventListener('activate', event => {
+  event.waitUntil(
+    caches.keys().then(keys =>
+      Promise.all(keys.filter(k => k !== SHELL_CACHE).map(k => caches.delete(k)))
+    ).then(() => self.clients.claim())
+  );
+});
+
+// Fetch event handler required for PWA installability criteria
+self.addEventListener('fetch', event => {
+  // Let non-GET or API requests pass directly to the network
+  if (event.request.method !== 'GET' || event.request.url.includes('/api/')) {
+    return;
+  }
+  event.respondWith(
+    fetch(event.request)
+      .then(response => {
+        // Cache successful responses for shell assets
+        if (response.status === 200) {
+          const clone = response.clone();
+          caches.open(SHELL_CACHE).then(cache => cache.put(event.request, clone)).catch(() => {});
+        }
+        return response;
+      })
+      .catch(async () => {
+        const cached = await caches.match(event.request);
+        if (cached) return cached;
+        if (event.request.mode === 'navigate') {
+          return caches.match('/') || caches.match('/index.html');
+        }
+        return new Response('Network error', { status: 503, statusText: 'Service Unavailable' });
+      })
+  );
+});
 
 self.addEventListener('push', event => {
   let data = {};
