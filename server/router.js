@@ -8,7 +8,7 @@ export function rankSessions(prompt, sessions, harness = 'auto') {
   return sessions.filter(s => harness === 'auto' || s.harness === harness).map(session => {
     const titleWords = new Set(tokens(session.title));
     const recentWords = new Set(tokens(session.lastPrompt));
-    const pathWords = new Set(tokens(session.cwd.replaceAll('/', ' ')));
+    const pathWords = new Set(tokens(String(session.cwd || '').replaceAll('\\', '/').replaceAll('/', ' ')));
     const titleHits = words.filter(w => titleWords.has(w));
     const recentHits = words.filter(w => recentWords.has(w));
     const pathHits = words.filter(w => pathWords.has(w));

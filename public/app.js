@@ -146,6 +146,13 @@ function renderSidebarProjects() {
     const t = Date.parse(s.updatedAt || 0) || 0;
     if (t > p.lastUpdated) p.lastUpdated = t;
   }
+  // Shed also knows about folders beyond the ones with sessions right now (the current project, named workspaces).
+  for (const p of state.projects || []) {
+    if (!p || !p.path) continue;
+    const norm = normalizePath(p.path);
+    if (!norm || projectMap.has(norm)) continue;
+    projectMap.set(norm, { path: p.path, norm, name: p.name || projectName(p.path), count: p.sessionCount || 0, live: (p.liveCount || 0) > 0, lastUpdated: Date.parse(p.lastUpdated || 0) || 0 });
+  }
   const projects = [...projectMap.values()].sort((a, b) => b.lastUpdated - a.lastUpdated);
   if (count) count.textContent = projects.length;
   list.innerHTML = projects.map(p => {
@@ -539,7 +546,7 @@ function connectEvents() {
   events.addEventListener('sessions', () => refresh());
 }
 document.addEventListener('visibilitychange', () => { if (!document.hidden && $('#auth-screen').classList.contains('hidden')) { connectEvents(); refresh(); loadTerminal(); } });
-async function init() { try { const me = await api('/api/me'); Object.assign(state, me); hideAuth(); renderHarnesses(); renderHarnessAvailability(); updateHarnessReadiness(); await Promise.all([refresh(), loadModels(), refreshHarnessHealth(), loadConnect()]); setupPush(); loadDevices(); connectEvents(); openFromUrl(location.href); $('#phone-message').classList.toggle('hidden', state.view !== 'inbox'); const requestedView = new URL(location.href).searchParams.get('view'); if (['projects','sessions','activity','settings'].includes(requestedView)) setView(requestedView); } catch (error) { if (error.message === 'Authentication required.') showAuth(); else showFeedback(error.message); } }
+async function init() { try { const me = await api('/api/me'); Object.assign(state, me); hideAuth(); renderHarnesses(); renderHarnessAvailability(); updateHarnessReadiness(); await Promise.all([refresh(), loadModels(), refreshHarnessHealth(), loadConnect()]); refreshInstall(); setupPush(); loadDevices(); connectEvents(); openFromUrl(location.href); $('#phone-message').classList.toggle('hidden', state.view !== 'inbox'); const requestedView = new URL(location.href).searchParams.get('view'); if (['projects','sessions','activity','settings'].includes(requestedView)) setView(requestedView); } catch (error) { if (error.message === 'Authentication required.') showAuth(); else showFeedback(error.message); } }
 async function previewRoute() { const prompt = $('#prompt').value.trim(); if (prompt.length < 9) { $('#route-preview').classList.add('hidden'); return; } try { const selectedProject = $('#project-select').value; const data = await api('/api/route', { method:'POST', body:JSON.stringify({prompt, harness:$('#harness-select').value, model:$('#model-select').value, cwd:selectedProject === '__new__' ? '' : selectedProject, newWorkspace:selectedProject === '__new__' ? $('#new-workspace').value : '', newSession:true}) }); if ($('#prompt').value.trim() !== prompt) return; const route = data.route; $('#route-preview').innerHTML = `<span class="route-symbol">✦</span><span><b>Local preview:</b> New ${escapeHtml(route.harness)} session · ${escapeHtml(route.reason)} · ${escapeHtml(route.model || 'harness default')} model</span>`; $('#route-preview').classList.remove('hidden'); } catch { $('#route-preview').classList.add('hidden'); } }
 async function sendTask(prompt, options = {}) { const attachKey = options.sessionId ? 'followup' : options.phone ? 'phone' : 'new', files = attached[attachKey]; if (files.some(f => f.status === 'uploading')) { showFeedback('Wait for the files to finish uploading.'); return false; } if (!prompt.trim() && !files.length) return; const button = options.sessionId ? $('#followup-send') : $('#send-button'); button.disabled = true; try { const selectedProject = $('#project-select').value; const isNew = !options.sessionId; if (files.some(f => f.status === 'failed')) throw new Error('Remove the files that failed to upload, then send again.'); const {task} = await api('/api/tasks', { method:'POST', body:JSON.stringify({ prompt, harness:options.harness || $('#harness-select').value, model:options.model ?? (options.sessionId ? $('#followup-model').value : $('#model-select').value), cwd:options.cwd ?? (selectedProject === '__new__' ? '' : selectedProject), newWorkspace:isNew && selectedProject === '__new__' ? $('#new-workspace').value : '', newSession:isNew, sessionId:options.sessionId || null, followup:options.followup || 'auto', attachments:files.map(f => f.id), skipPermissions:options.sessionId ? $('#followup-skip').checked : $('#skip-permissions').checked }) }); attached[attachKey] = []; renderAttachments(attachKey); $('#prompt').value = ''; $('#followup-prompt').value = ''; $('#followup-prompt').style.height = ''; state.followupPreviewKey = null; $('#followup-preview').classList.add('hidden'); $('#new-workspace').value = ''; $('#route-preview').classList.add('hidden');
   if (options.sessionId && !task.handoffFrom) { state.pending.push({ taskId:task.id, sessionId:options.sessionId, text:prompt.trim(), at:Date.now() }); state.pinBottom = true; await refresh(); return true; }
@@ -1000,6 +1007,14 @@ $('#connect-phone').addEventListener('click', openConnect);
 $('#connect-card-more').addEventListener('click', openConnect);
 $('#connect-close').addEventListener('click', () => $('#connect-dialog').close());
 $('#connect-dialog').addEventListener('click', e => { if (e.target === e.currentTarget) e.currentTarget.close(); });
+// Installing Shed on this phone: use the browser install prompt when offered, otherwise the Home Screen steps.
+let installPrompt = null;
+const isStandaloneApp = () => matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
+const isIOSDevice = () => /iPad|iPhone|iPod/i.test(navigator.userAgent) || /iPad|iPhone|iPod/i.test(navigator.platform || '');
+window.addEventListener('beforeinstallprompt', event => { event.preventDefault(); installPrompt = event; refreshInstall(); });
+async function refreshInstall() { const button = $('#install-app'); if (!button) return; const installed = isStandaloneApp(); const ios = isIOSDevice() && !installed; button.disabled = installed; button.textContent = installed ? 'Installed ✓' : ios ? 'Add to Home Screen…' : (installPrompt ? 'Install Shed on this phone ↗' : 'Install Shed on this phone'); if ($('#install-note')) $('#install-note').classList.toggle('hidden', !ios); }
+async function installShed() { const button = $('#install-app'); if (!button) return; if (isStandaloneApp()) { button.textContent = 'Installed ✓'; return; } const ios = isIOSDevice() && !isStandaloneApp(); if (ios) { showFeedback('On iPhone or iPad, open Shed in Safari and use the Share menu → Add to Home Screen, then open Shed from the Home Screen.'); return; } if (!installPrompt) { showFeedback('This browser could not offer an install button. You can still open Shed from the browser menu or add it to your Home Screen.'); return; } const prompt = installPrompt; installPrompt = null; const { outcome } = await prompt.prompt(); if (outcome === 'accepted') { button.textContent = 'Installed ✓'; } }
+$('#install-app').addEventListener('click', async () => { await installShed(); await refreshInstall(); });
 // On a phone, the command center has a message bar: type and send, and Laya picks the agent.
 // The phone bar's agent picker mirrors the main composer's harness list (same readiness, "Auto" for Laya).
 function syncPhoneHarness() {

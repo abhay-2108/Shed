@@ -81,7 +81,7 @@ export function agentInForeground(tty, command) {
     return session.active;
   }
 
-  const names = Array.isArray(command) ? command : [command];
+  const names = Array.isArray(command) ? command.map(c => c === 'agy' ? 'gemini' : c) : [command === 'agy' ? 'gemini' : command];
   const result = spawnSync('/bin/ps', ['-t', tty.replace('/dev/', ''), '-o', 'stat=,comm='], { encoding:'utf8', timeout:2000 });
   return (result.stdout || '').split('\n').some(line => {
     const match = line.trim().match(/^(\S+)\s+(.+)$/);
@@ -100,7 +100,7 @@ export function pidOnTty(tty, command) {
   const result = spawnSync('/bin/ps', ['-t', tty.replace('/dev/', ''), '-o', 'pid=,comm='], { encoding:'utf8', timeout:2000 });
   for (const line of (result.stdout || '').split('\n')) {
     const match = line.trim().match(/^(\d+)\s+(.+)$/);
-    if (match && path.basename(match[2]) === command) return Number(match[1]);
+    if (match && path.basename(match[2]) === (command === 'agy' ? 'gemini' : command)) return Number(match[1]);
   }
   return null;
 }
@@ -379,7 +379,7 @@ export async function stopAgent(pid, command, { graceMs = 5000 } = {}) {
     return { stopped: true, forced: false };
   }
 
-  const names = Array.isArray(command) ? command : [command];
+  const names = Array.isArray(command) ? command.map(c => c === 'agy' ? 'gemini' : c) : [command === 'agy' ? 'gemini' : command];
   const owned = () => { const info = processInfo(pid); return info && names.includes(info.command) ? info : null; };
   const info = owned();
   if (!info) return { stopped:false, reason:'not-running' };

@@ -365,6 +365,25 @@ function listProjects() {
     }
   }
   try {
+    const currentRoot = process.cwd();
+    const norm = path.resolve(currentRoot).toLowerCase();
+    if (!projectMap.has(norm)) {
+      projectMap.set(norm, {
+        path: currentRoot,
+        norm,
+        name: path.basename(currentRoot) || currentRoot,
+        exists: true,
+        isGit: false,
+        gitBranch: '',
+        sessionCount: 0,
+        liveCount: 0,
+        harnesses: new Set(),
+        lastUpdated: 0,
+        recentSessions: []
+      });
+    }
+  } catch {}
+  try {
     const workspaceRoot = path.join(os.homedir(), 'Shed Workspaces');
     if (fs.existsSync(workspaceRoot)) {
       for (const entry of fs.readdirSync(workspaceRoot, { withFileTypes: true })) {
@@ -753,7 +772,7 @@ function startTerminalTask(task, route, modelDecision, cwd, agentPrompt, skipPer
 }
 async function deliverToTerminal(task, route, modelDecision, cwd, agentPrompt, skipPermissions) {
   const session = route.session;
-  const label = task.harness === 'codex' ? 'Codex' : 'Claude';
+  const label = task.harness === 'codex' ? 'Codex' : task.harness === 'gemini' ? 'Antigravity' : 'Claude';
   try {
     // Only type into a session's window while the agent is still running there; otherwise resume it in a new window.
     if (session?.tty && agentInForeground(session.tty, task.harness)) {
@@ -774,6 +793,15 @@ async function deliverToTerminal(task, route, modelDecision, cwd, agentPrompt, s
       const argv = ['codex', ...(session ? ['resume', session.nativeId] : []), '--no-alt-screen', ...(modelDecision.model ? ['--model', modelDecision.model] : []), ...(skipPermissions ? ['--dangerously-bypass-approvals-and-sandbox'] : [])];
       const tty = await openTerminalAsync(cwd, argv, promptFile);
       Object.assign(task, { tty, permissions:skipPermissions ? 'skip' : 'default', ...(session ? { transcriptFile:session.file, nativeSessionId:session.nativeId } : {}), output:`Opened a new terminal window on this machine (${tty.replace('/dev/', '')}).${skipPermissions ? '' : ' Codex will ask there before running commands; answer from the Terminal view.'}` });
+    } else if (task.harness === 'gemini') {
+      const promptDir = path.join(dataDir, 'prompts');
+      fs.mkdirSync(promptDir, { recursive:true, mode:0o700 });
+      const promptFile = path.join(promptDir, `${task.id}.txt`);
+      fs.writeFileSync(promptFile, agentPrompt, { mode:0o600 });
+      if (session) task.transcriptOffset = transcriptSize(session.file);
+      const argv = ['agy', ...(session ? ['--conversation', session.nativeId] : []), ...(modelDecision.model ? ['--model', modelDecision.model] : []), ...(skipPermissions ? ['--dangerously-skip-permissions'] : [])];
+      const tty = await openTerminalAsync(cwd, argv, promptFile);
+      Object.assign(task, { tty, permissions:skipPermissions ? 'skip' : 'default', ...(session ? { transcriptFile:session.file, nativeSessionId:session.nativeId } : {}), output:`Opened a new terminal window on this machine (${tty.replace('/dev/', '')}).${skipPermissions ? '' : ' Antigravity will ask there before running commands; answer from the Terminal view.'}` });
     } else {
       const promptDir = path.join(dataDir, 'prompts');
       fs.mkdirSync(promptDir, { recursive:true, mode:0o700 });
@@ -816,7 +844,10 @@ function startTask(input, route, modelDecision, requestedCwd = '') {
     queueCodexTask(task, route.session);
     return task;
   }
-  if ((harness === 'claude' && process.env.LAYA_HEADLESS_CLAUDE !== '1') || (harness === 'codex' && process.env.LAYA_HEADLESS_CODEX !== '1')) {
+  // Codex and Claude run in a visible Terminal so the person can answer prompts from the phone; Antigravity resumes
+  // there too (fresh sessions stay headless), and headless mode stays switchable per harness for background runs.
+  const useTerminal = (harness === 'claude' && process.env.LAYA_HEADLESS_CLAUDE !== '1') || (harness === 'codex' && process.env.LAYA_HEADLESS_CODEX !== '1') || (harness === 'gemini' && Boolean(route.session));
+  if (useTerminal) {
     startTerminalTask(task, route, modelDecision, cwd, agentPrompt, Boolean(input.skipPermissions));
     return task;
   }

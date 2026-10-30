@@ -16,11 +16,6 @@ const curated = {
     { id: 'Gemini 3.8 Flash (Low)', label: 'Gemini 3.8 Flash (Low)', description: 'Fast responses for quick edits.', enabled: true },
     { id: 'Claude Sonnet 4.6 (Thinking)', label: 'Claude Sonnet 4.6 (Thinking)', description: 'Claude Sonnet with extended thinking in Antigravity.', enabled: true },
     { id: 'Claude Opus 4.6', label: 'Claude Opus 4.6', description: 'Claude Opus for complex tasks in Antigravity.', enabled: true },
-    { id: 'gemini-2.5-pro', label: 'Gemini 2.5 Pro', description: 'Advanced reasoning and complex implementation.', enabled: true },
-    { id: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash', description: 'Fast, balanced work.', enabled: true },
-    { id: 'pro', label: 'Pro', description: 'Complex reasoning and larger tasks.', enabled: true },
-    { id: 'flash', label: 'Flash', description: 'Fast, balanced work.', enabled: true },
-    { id: 'flash-lite', label: 'Flash Lite', description: 'Fastest for simple requests.', enabled: true },
   ],
   pi: [],
   opencode: [

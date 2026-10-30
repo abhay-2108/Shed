@@ -39,6 +39,8 @@ export function claudeLiveState(info) {
 }
 
 const names = new Set(['codex', 'claude', 'gemini', 'pi', 'opencode']);
+// The Antigravity CLI is installed as "agy" but its conversations belong to the "gemini" harness.
+const agentKey = name => (name === 'agy' ? 'gemini' : name);
 
 export function parseOpenFiles(output) {
   const files = new Map();
@@ -56,7 +58,8 @@ function agentPids() {
     const processes = new Map();
     for (const p of list) {
       const name = path.basename(p.command, path.extname(p.command)).toLowerCase();
-      if (names.has(name)) processes.set(p.pid, name);
+      const key = agentKey(name);
+      if (names.has(key)) processes.set(p.pid, key);
     }
     return processes;
   }
@@ -67,7 +70,8 @@ function agentPids() {
     const match = line.trim().match(/^(\d+)\s+(.+)$/);
     if (!match) continue;
     const name = path.basename(match[2]).toLowerCase();
-    if (names.has(name)) processes.set(Number(match[1]), name);
+    const key = agentKey(name);
+    if (names.has(key)) processes.set(Number(match[1]), key);
   }
   return processes;
 }

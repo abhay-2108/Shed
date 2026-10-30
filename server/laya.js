@@ -34,7 +34,15 @@ async function askChoice(state, name, instructions, criteria, options = {}) {
   const choice = answer.choice;
   const probability = Number(answer.probabilities?.[choice] ?? answer.confidence ?? 0);
   if (!Object.hasOwn(criteria, choice) || !Number.isFinite(probability)) throw new Error('Laya returned an invalid choice.');
-  return { choice, confidence:probability, model:data.model || 'laya' };
+  const result = { choice, confidence:probability, model:data.model || 'laya' };
+  return result;
+}
+
+async function askChoiceWithRetry(state, name, instructions, criteria, options = {}) {
+  const result = await askChoice(state, name, instructions, criteria, options);
+  if (result.confidence >= 0.42) return result;
+  // One retry before the caller decides to fall back to local matching.
+  return askChoice(state, name, instructions, criteria, options);
 }
 
 const harnessDescriptions = {
@@ -60,7 +68,7 @@ export async function decideRoute(prompt, sessions, harness = 'auto', sessionId 
   if (Object.keys(criteria).length < 2) return { ...local, source:'local' };
 
   try {
-    const { choice, confidence } = await askChoice({ request:prompt.slice(0, 8000), allowedHarness:harness, availableHarnesses:newHarnesses, candidates:candidates.map(({ session }, index) => ({ option:`session_${index}`, title:session.title, project:session.cwd, harness:session.harness })) }, 'route', 'Choose the best existing session for this request, or start a new session in the best suited available harness. Prefer a new session if the connection to existing sessions is weak or unclear. Choose only one listed option.', criteria, options);
+    const { choice, confidence } = await askChoiceWithRetry({ request:prompt.slice(0, 8000), allowedHarness:harness, availableHarnesses:newHarnesses, candidates:candidates.map(({ session }, index) => ({ option:`session_${index}`, title:session.title, project:session.cwd, harness:session.harness })) }, 'route', 'Choose the best existing session for this request, or start a new session in the best suited available harness. Prefer a new session if the connection to existing sessions is weak or unclear. Choose only one listed option.', criteria, options);
     if (confidence < 0.42) return { ...local, source:'local', fallbackReason:'Laya was unsure; local matching was used' };
     if (choice.startsWith('new_')) {
       const chosenHarness = choice.slice(4);
@@ -115,7 +123,7 @@ export async function decideModel(prompt, harness, config, options = {}) {
   if (options.preview) return fallback;
   const criteria = Object.fromEntries(enabled.map((model, index) => [`model_${index}`, `${model.label} (${model.id}): ${model.description || 'No description supplied.'}${model === current ? ' This is the model the conversation is already using; prefer it unless the request clearly needs a different one.' : ''}`]));
   try {
-    const { choice, confidence } = await askChoice({ request:prompt.slice(0, 8000), harness, currentModel:current?.id || '', sessionTopic:options.session?.title || '', recentConversation:options.session?.lastPrompt || '', models:enabled.map(model => ({ id:model.id, description:model.description })) }, 'model', 'Choose the best model for this task within the selected harness. Consider difficulty, speed, and the model descriptions. Pick one listed option.', criteria, options);
+    const { choice, confidence } = await askChoiceWithRetry({ request:prompt.slice(0, 8000), harness, currentModel:current?.id || '', sessionTopic:options.session?.title || '', recentConversation:options.session?.lastPrompt || '', models:enabled.map(model => ({ id:model.id, description:model.description })) }, 'model', 'Choose the best model for this task within the selected harness. Consider difficulty, speed, and the model descriptions. Pick one listed option.', criteria, options);
     if (confidence < 0.42) return { ...fallback, fallbackReason:'Laya was unsure about the model' };
     const selected = enabled[Number(choice.split('_')[1])];
     if (!selected) throw new Error('Laya selected an invalid model.');

@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
+import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import { DatabaseSync } from 'node:sqlite';
 import { liveSessionStates } from './live.js';
@@ -115,6 +116,52 @@ function geminiRecord(file) {
   return { id: `gemini:${id}`, nativeId: id, harness: 'gemini', title: title || 'Untitled Gemini session', lastPrompt: clean(last?.content || last?.text || last?.message, 260), cwd: data.cwd || '', currentModel: [...messages].reverse().find(x => typeof x.model === 'string')?.model || '', updatedAt: data.lastUpdated || stat.mtime.toISOString(), file, source: 'desktop' };
 }
 
+let agyWorkspaceCache = { at: 0, map: new Map() };
+function getAntigravityWorkspaces() {
+  if (Date.now() - agyWorkspaceCache.at < 5000) return agyWorkspaceCache.map;
+  const map = new Map();
+  const dbPath = path.join(home, '.gemini', 'antigravity-cli', 'conversation_summaries.db');
+  if (fs.existsSync(dbPath)) {
+    try {
+      const db = new DatabaseSync(dbPath, { readOnly: true });
+      const rows = db.prepare('SELECT conversation_id, workspace_uris FROM conversation_summaries').all();
+      for (const r of rows) {
+        if (!r.workspace_uris) continue;
+        try {
+          const uris = JSON.parse(r.workspace_uris);
+          if (Array.isArray(uris) && uris.length > 0) {
+            const uri = uris[0];
+            let p = uri;
+            try {
+              if (uri.startsWith('file://')) p = fileURLToPath(uri);
+            } catch {
+              p = decodeURIComponent(uri.replace(/^file:\/\/\/?/, ''));
+            }
+            if (p) map.set(r.conversation_id, path.normalize(p));
+          }
+        } catch {}
+      }
+    } catch {}
+  }
+  const histPath = path.join(home, '.gemini', 'antigravity-cli', 'history.jsonl');
+  if (fs.existsSync(histPath)) {
+    try {
+      const lines = fs.readFileSync(histPath, 'utf8').split('\n');
+      for (const l of lines) {
+        if (!l.trim()) continue;
+        try {
+          const item = JSON.parse(l);
+          if (item.conversationId && item.workspace && !map.has(item.conversationId)) {
+            map.set(item.conversationId, path.normalize(item.workspace));
+          }
+        } catch {}
+      }
+    } catch {}
+  }
+  agyWorkspaceCache = { at: Date.now(), map };
+  return map;
+}
+
 function geminiBrainRecord(file) {
   const stat = fs.statSync(file);
   const head = sliceFile(file, 64 * 1024);
@@ -134,10 +181,15 @@ function geminiBrainRecord(file) {
   const convIdMatch = file.match(/[\\/]brain[\\/]([0-9a-f-]{36})[\\/]/i);
   const id = convIdMatch ? convIdMatch[1] : path.basename(path.dirname(path.dirname(path.dirname(file))));
 
-  // Dynamically extract the workspace CWD from the transcript rather than hardcoding a machine path.
-  const cwdMatch = head.match(/"cwd"\s*:\s*"([^"]{2,260})"/);
-  const workspaceMatch = head.match(/Command Working Directory:\s*([^\n\r"]{2,260})/);
-  const cwd = cwdMatch?.[1] || workspaceMatch?.[1]?.trim() || '';
+  // Extract the workspace CWD from Antigravity database/history or transcript.
+  const agyWorkspaces = getAntigravityWorkspaces();
+  let cwd = agyWorkspaces.get(id) || '';
+
+  if (!cwd) {
+    const cwdMatch = head.match(/"cwd"\s*:\s*"([^"]{2,260})"/);
+    const workspaceMatch = head.match(/Command Working Directory:\s*([^\n\r"]{2,260})/);
+    cwd = cwdMatch?.[1] || workspaceMatch?.[1]?.trim() || '';
+  }
 
   // Extract the most-recently-chosen model from the transcript; default to empty string.
   const modelMatch = [...(tail + head).matchAll(/"Model Selection" from [^"]*"[^"]*" to ([^\n.]+)/g)].at(-1);
