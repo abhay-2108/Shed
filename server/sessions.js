@@ -7,7 +7,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { liveSessionStates } from './live.js';
 import { spawnToolSync } from './platform.js';
 
-const home = os.homedir();
+let home = os.homedir();
 const roots = {
   codex: path.join(home, '.codex', 'sessions'),
   claude: path.join(home, '.claude', 'projects'),
@@ -15,6 +15,10 @@ const roots = {
   geminiBrain: path.join(home, '.gemini', 'antigravity-cli', 'brain'),
   pi: path.join(home, '.pi', 'agent', 'sessions'),
 };
+
+export function setHomeForTests(dir) {
+  home = dir;
+}
 
 function walk(dir, accept, maxDepth = 5, depth = 0, out = []) {
   if (depth > maxDepth) return out;
@@ -117,7 +121,7 @@ function geminiRecord(file) {
 }
 
 let agyWorkspaceCache = { at: 0, map: new Map() };
-function getAntigravityWorkspaces() {
+export function getAntigravityWorkspaces() {
   if (Date.now() - agyWorkspaceCache.at < 5000) return agyWorkspaceCache.map;
   const map = new Map();
   const dbPath = path.join(home, '.gemini', 'antigravity-cli', 'conversation_summaries.db');

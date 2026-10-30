@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { sessionMessages } from '../server/sessions.js';
+import { DatabaseSync } from 'node:sqlite';
+import { sessionMessages, getAntigravityWorkspaces, setHomeForTests } from '../server/sessions.js';
 
 test('Claude tool output and CLI wrappers are not shown as user prompts', () => {
   const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'laya-sessions-')), 'session.jsonl');
@@ -58,4 +59,22 @@ test('a typed message is still found after megabytes of image data, and the repl
   const done = claudeTerminalProgress(task);
   assert.equal(done.found, true);
   assert.equal(done.output, 'I watched the reel.');
+});
+
+test('Antigravity conversations resolve their workspace CWD from the summaries db and history', async () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'laya-agy-'));
+  setHomeForTests(tmp);
+  try {
+    const dbPath = path.join(tmp, '.gemini', 'antigravity-cli', 'conversation_summaries.db');
+    fs.mkdirSync(path.dirname(dbPath), { recursive: true });
+    const db = new DatabaseSync(dbPath);
+    db.exec('CREATE TABLE conversation_summaries (conversation_id TEXT PRIMARY KEY, workspace_uris TEXT NOT NULL)');
+    db.prepare('INSERT INTO conversation_summaries (conversation_id, workspace_uris) VALUES (?, ?)').run('conv-agy-1', JSON.stringify(['/tmp/fake-agy-workspace']));
+    fs.writeFileSync(path.join(tmp, '.gemini', 'antigravity-cli', 'history.jsonl'), JSON.stringify({ conversationId: 'conv-agy-2', workspace: '/tmp/fake-agy-workspace-2' }) + '\n');
+    const workspaces = getAntigravityWorkspaces();
+    assert.equal(workspaces.get('conv-agy-1'), path.normalize('/tmp/fake-agy-workspace'));
+    assert.equal(workspaces.get('conv-agy-2'), path.normalize('/tmp/fake-agy-workspace-2'));
+  } finally {
+    setHomeForTests(os.homedir());
+  }
 });
